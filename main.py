@@ -4,6 +4,8 @@ from PIL import Image, ImageTk
 import os
 import json
 import threading
+import base64
+import io
 from game_logic import GameLogic
 from network import Network
 
@@ -232,7 +234,28 @@ class SmashOrPassApp:
             self.votes = {}
             self.update_results()
             if self.network and self.network.is_host:
-                self.network.send('next_image', {'filename': os.path.basename(path)})
+                payload = {'filename': os.path.basename(path)}
+                encoded = self._encode_image_for_network(path)
+                if encoded:
+                    payload['image_b64'] = encoded
+                self.network.send('next_image', payload)
+
+
+    def _encode_image_for_network(self, path):
+        try:
+            img = Image.open(path)
+            img = self.game._scale_image(img)
+            if img is None:
+                return None
+            buffer = io.BytesIO()
+            img.save(buffer, format="JPEG", quality=70, optimize=True)
+            data = buffer.getvalue()
+            if len(data) > 45000:
+                return None
+            return base64.b64encode(data).decode("ascii")
+        except Exception as e:
+            print(f"Error encoding image for network: {e}")
+            return None
 
     def receive_next_image(self, data, addr=None):
         self.root.after(0, lambda: self._receive_next_image(data))
@@ -242,13 +265,21 @@ class SmashOrPassApp:
         if not filename:
             print("Error: No filename provided in next_image")
             return
-        path = os.path.abspath(os.path.join(self.game.image_folder, filename))
-        if os.path.commonpath([self.game.image_folder, path]) != self.game.image_folder:
-            print("Security warning: blocked invalid image path")
-            return
+        image_b64 = data.get('image_b64')
         try:
-            img = Image.open(path)
-            img = self.game._scale_image(img)
+            if image_b64:
+                decoded = base64.b64decode(image_b64, validate=True)
+                img = Image.open(io.BytesIO(decoded))
+                img = self.game._scale_image(img)
+                path = os.path.abspath(os.path.join(self.game.image_folder, filename))
+            else:
+                path = os.path.abspath(os.path.join(self.game.image_folder, filename))
+                if os.path.commonpath([self.game.image_folder, path]) != self.game.image_folder:
+                    print("Security warning: blocked invalid image path")
+                    return
+                img = Image.open(path)
+                img = self.game._scale_image(img)
+
             img_tk = ImageTk.PhotoImage(img)
             self.current_image = img_tk
             self.current_image_path = path
