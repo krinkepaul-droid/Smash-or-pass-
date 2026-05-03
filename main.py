@@ -104,7 +104,7 @@ class SmashOrPassApp:
 
         tk.Button(
             self.toolbar,
-            text="��� Join Game",
+            text="🔗 Join Game",
             command=self.join_game,
             width=15,
             font=("Arial", 10)
@@ -232,15 +232,19 @@ class SmashOrPassApp:
             self.votes = {}
             self.update_results()
             if self.network and self.network.is_host:
-                self.network.send('next_image', {'path': path})
+                self.network.send('next_image', {'filename': os.path.basename(path)})
 
     def receive_next_image(self, data, addr=None):
         self.root.after(0, lambda: self._receive_next_image(data))
 
     def _receive_next_image(self, data):
-        path = data.get('path')
-        if not path:
-            print("Error: No path provided in next_image")
+        filename = data.get('filename')
+        if not filename:
+            print("Error: No filename provided in next_image")
+            return
+        path = os.path.abspath(os.path.join(self.game.image_folder, filename))
+        if os.path.commonpath([self.game.image_folder, path]) != self.game.image_folder:
+            print("Security warning: blocked invalid image path")
             return
         try:
             img = Image.open(path)
@@ -274,10 +278,18 @@ class SmashOrPassApp:
     def receive_vote(self, data, addr=None):
         if not self.network or not addr:
             return
-        username = self.network.clients.get(addr, "Unknown")
+
         vote = data.get('vote', 'unknown')
-        self.votes[username] = vote
-        self.update_results()
+
+        if self.network.is_host:
+            username = self.network.clients.get(addr, data.get('_username', 'Unknown'))
+            self.votes[username] = vote
+            self.update_results()
+            self.network.send('vote', {'vote': vote, '_username': username})
+        else:
+            username = data.get('_username', data.get('username', 'Unknown'))
+            self.votes[username] = vote
+            self.update_results()
 
     def user_joined(self, data, addr=None):
         username = data.get('username', 'Unknown')
