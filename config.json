@@ -1,0 +1,5 @@
+{
+    "default_image_folder": "./images",
+    "default_port": 55555,
+    "default_username": "Player"
+}
