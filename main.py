@@ -16,15 +16,44 @@ def create_default_config():
             "default_port": 55555,
             "default_username": "Player"
         }
-        with open(config_path, 'w') as f:
-            json.dump(default_config, f, indent=4)
-        print(f"Created default {config_path}")
+        try:
+            with open(config_path, 'w') as f:
+                json.dump(default_config, f, indent=4)
+            print(f"Created default {config_path}")
+        except IOError as e:
+            print(f"Error creating config file: {e}")
 
 def load_config():
-    """Load config from config.json"""
+    """Load config from config.json with validation"""
     create_default_config()
-    with open('config.json') as f:
-        return json.load(f)
+    try:
+        with open('config.json') as f:
+            config = json.load(f)
+        
+        # Validate required keys
+        required_keys = ['default_image_folder', 'default_port', 'default_username']
+        for key in required_keys:
+            if key not in config:
+                print(f"Warning: Missing key '{key}' in config, using default")
+                return get_default_config()
+        
+        # Validate port is an integer
+        if not isinstance(config['default_port'], int) or config['default_port'] <= 0 or config['default_port'] > 65535:
+            print("Warning: Invalid port in config, using default")
+            return get_default_config()
+        
+        return config
+    except (json.JSONDecodeError, IOError) as e:
+        print(f"Error loading config: {e}, using defaults")
+        return get_default_config()
+
+def get_default_config():
+    """Return default configuration"""
+    return {
+        "default_image_folder": "./images",
+        "default_port": 55555,
+        "default_username": "Player"
+    }
 
 class SmashOrPassApp:
     def __init__(self, root):
@@ -75,7 +104,7 @@ class SmashOrPassApp:
 
         tk.Button(
             self.toolbar,
-            text="🔗 Join Game",
+            text="��� Join Game",
             command=self.join_game,
             width=15,
             font=("Arial", 10)
@@ -209,7 +238,10 @@ class SmashOrPassApp:
         self.root.after(0, lambda: self._receive_next_image(data))
 
     def _receive_next_image(self, data):
-        path = data['path']
+        path = data.get('path')
+        if not path:
+            print("Error: No path provided in next_image")
+            return
         try:
             img = Image.open(path)
             img = self.game._scale_image(img)
@@ -240,13 +272,15 @@ class SmashOrPassApp:
             self.network.send('vote', {'vote': vote, 'image': self.current_image_path})
 
     def receive_vote(self, data, addr=None):
+        if not self.network or not addr:
+            return
         username = self.network.clients.get(addr, "Unknown")
-        vote = data['vote']
+        vote = data.get('vote', 'unknown')
         self.votes[username] = vote
         self.update_results()
 
     def user_joined(self, data, addr=None):
-        username = data['username']
+        username = data.get('username', 'Unknown')
         self.results_text.config(state=tk.NORMAL)
         self.results_text.insert(tk.END, f"👤 {username} joined the game.\n")
         self.results_text.config(state=tk.DISABLED)
@@ -267,7 +301,7 @@ class SmashOrPassApp:
             self.network.close()
         self.root.quit()
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     root = tk.Tk()
     app = SmashOrPassApp(root)
     root.protocol("WM_DELETE_WINDOW", app.on_close)
