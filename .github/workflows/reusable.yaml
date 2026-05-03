@@ -1,7 +1,7 @@
-name: Reusable Build and Release
+name: Build and Release
 
 on:
-  workflow_call:
+  workflow_dispatch:
     inputs:
       tag_name:
         description: "Tag to create (e.g. v1.0.0)"
@@ -36,13 +36,19 @@ on:
         description: "Output application / game name"
         required: false
         type: string
-        default: "Email adress generator"
+        default: "osint-mindmap"
 
       main_py_file:
         description: "Main python entry file"
         required: false
         type: string
-        default: "generator.py"
+        default: "OSINT-framework.py"
+
+      requirements_file:
+        description: "Requirements file"
+        required: false
+        type: string
+        default: "requirements.txt"
 
       python_version:
         description: "Python version"
@@ -64,52 +70,72 @@ jobs:
           - name: windows
             runs_on: windows-latest
             artifact_name: windows
-            output_file: "${{ inputs.app_name }}.exe"
-            shell: pwsh
 
           - name: linux-ubuntu
             runs_on: ubuntu-latest
             artifact_name: linux-ubuntu
-            output_file: "${{ inputs.app_name }}"
-            shell: bash
 
           - name: linux-arch
             runs_on: ubuntu-latest
             container_image: archlinux:latest
             artifact_name: linux-arch
-            output_file: "${{ inputs.app_name }}"
-            shell: sh
 
-    container: ${{ matrix.container_image || null }}
+    container: ${{ matrix.container_image }}
 
     steps:
       - uses: actions/checkout@v4
 
-      # ---------- Python setup ----------
       - name: Set up Python
-        if: ${{ !matrix.container_image }}
+        if: ${{ matrix.name != 'linux-arch' }}
         uses: actions/setup-python@v5
         with:
           python-version: ${{ inputs.python_version }}
 
-      - name: Install Python + PyInstaller (Arch container)
+      - name: Install Python + build dependencies (Arch container)
         if: ${{ matrix.name == 'linux-arch' }}
         shell: sh
         run: |
           set -eu
+          REQ_FILE="${{ inputs.requirements_file }}"
+
           pacman -Sy --noconfirm
-          pacman -S --noconfirm python python-pip tk base-devel
-          python -m pip install --upgrade pip
-          pip install pyinstaller
+          pacman -S --noconfirm python python-pip python-virtualenv tk base-devel
 
-      - name: Install PyInstaller
-        if: ${{ matrix.name != 'linux-arch' }}
-        shell: ${{ matrix.shell }}
+          python -m venv .venv
+          . .venv/bin/activate
+
+          python -m pip install --upgrade pip
+          python -m pip install pyinstaller
+
+          if [ -f "$REQ_FILE" ]; then
+            python -m pip install -r "$REQ_FILE"
+          fi
+
+      - name: Install build dependencies (Windows)
+        if: ${{ matrix.name == 'windows' }}
+        shell: pwsh
         run: |
+          $ReqFile = "${{ inputs.requirements_file }}"
           python -m pip install --upgrade pip
-          pip install pyinstaller
+          python -m pip install pyinstaller
 
-      # ---------- Build Windows ----------
+          if (Test-Path $ReqFile) {
+            python -m pip install -r $ReqFile
+          }
+
+      - name: Install build dependencies (Ubuntu)
+        if: ${{ matrix.name == 'linux-ubuntu' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          REQ_FILE="${{ inputs.requirements_file }}"
+          python -m pip install --upgrade pip
+          python -m pip install pyinstaller
+
+          if [ -f "$REQ_FILE" ]; then
+            python -m pip install -r "$REQ_FILE"
+          fi
+
       - name: Build Windows EXE
         if: ${{ matrix.name == 'windows' }}
         shell: pwsh
@@ -124,7 +150,6 @@ jobs:
           New-Item -ItemType Directory -Force -Path out | Out-Null
           Copy-Item "dist\$App.exe" "out\$App-windows.exe" -Force
 
-      # ---------- Build Ubuntu Linux ----------
       - name: Build Ubuntu Linux binary
         if: ${{ matrix.name == 'linux-ubuntu' }}
         shell: bash
@@ -144,13 +169,14 @@ jobs:
           cp "dist/$APP" "out/$APP-linux-ubuntu"
           chmod +x "out/$APP-linux-ubuntu"
 
-      # ---------- Build Arch Linux ----------
       - name: Build Arch Linux binary
         if: ${{ matrix.name == 'linux-arch' }}
         shell: sh
         run: |
           set -eu
           APP="${{ inputs.app_name }}"
+
+          . .venv/bin/activate
 
           pyinstaller --onefile --noconsole --name "$APP" "${{ inputs.main_py_file }}"
 
@@ -191,10 +217,15 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p release_assets
-          cp downloaded/* release_assets/ || true
-          chmod +x release_assets/* || true
+          cp downloaded/* release_assets/
           echo "Assets:"
           ls -la release_assets
+
+      - name: Make Linux binaries executable
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x release_assets/*-linux-* || true
 
       - name: Generate SHA256SUMS.txt
         shell: bash
@@ -202,7 +233,7 @@ jobs:
           set -euo pipefail
           cd release_assets
 
-          if [ "$(ls -A .)" = "" ]; then
+          if [ -z "$(ls -A .)" ]; then
             echo "No assets found"
             exit 1
           fi
@@ -240,8 +271,12 @@ jobs:
           fi
 
           FLAGS=()
-          ${{ inputs.draft }} && FLAGS+=(--draft)
-          ${{ inputs.prerelease }} && FLAGS+=(--prerelease)
+          if [ "${{ inputs.draft }}" = "true" ]; then
+            FLAGS+=(--draft)
+          fi
+          if [ "${{ inputs.prerelease }}" = "true" ]; then
+            FLAGS+=(--prerelease)
+          fi
 
           gh release create "$TAG" release_assets/* \
             --repo "$GITHUB_REPOSITORY" \
