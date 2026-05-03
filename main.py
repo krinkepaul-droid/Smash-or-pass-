@@ -4,6 +4,11 @@ from PIL import Image, ImageTk
 import os
 import json
 import threading
+import base64
+import io
+
+MAX_IMAGE_BYTES = 45000
+MAX_IMAGE_B64_CHARS = 70000
 from game_logic import GameLogic
 from network import Network
 
@@ -104,7 +109,7 @@ class SmashOrPassApp:
 
         tk.Button(
             self.toolbar,
-            text="��� Join Game",
+            text="🔗 Join Game",
             command=self.join_game,
             width=15,
             font=("Arial", 10)
@@ -232,19 +237,58 @@ class SmashOrPassApp:
             self.votes = {}
             self.update_results()
             if self.network and self.network.is_host:
-                self.network.send('next_image', {'path': path})
+                payload = {'filename': os.path.basename(path)}
+                encoded = self._encode_image_for_network(path)
+                if encoded:
+                    payload['image_b64'] = encoded
+                self.network.send('next_image', payload)
+
+
+    def _encode_image_for_network(self, path):
+        try:
+            img = Image.open(path)
+            img = self.game._scale_image(img)
+            if img is None:
+                return None
+            buffer = io.BytesIO()
+            img.save(buffer, format="JPEG", quality=70, optimize=True)
+            data = buffer.getvalue()
+            if len(data) > MAX_IMAGE_BYTES:
+                return None
+            return base64.b64encode(data).decode("ascii")
+        except Exception as e:
+            print(f"Error encoding image for network: {e}")
+            return None
 
     def receive_next_image(self, data, addr=None):
         self.root.after(0, lambda: self._receive_next_image(data))
 
     def _receive_next_image(self, data):
-        path = data.get('path')
-        if not path:
-            print("Error: No path provided in next_image")
+        filename = data.get('filename')
+        if not filename:
+            print("Error: No filename provided in next_image")
+            return
+        image_b64 = data.get('image_b64')
+        if image_b64 and len(image_b64) > MAX_IMAGE_B64_CHARS:
+            print("Security warning: oversized image payload blocked")
             return
         try:
-            img = Image.open(path)
-            img = self.game._scale_image(img)
+            if image_b64:
+                decoded = base64.b64decode(image_b64, validate=True)
+                if len(decoded) > MAX_IMAGE_BYTES:
+                    print("Security warning: oversized decoded image blocked")
+                    return
+                img = Image.open(io.BytesIO(decoded))
+                img = self.game._scale_image(img)
+                path = os.path.abspath(os.path.join(self.game.image_folder, filename))
+            else:
+                path = os.path.abspath(os.path.join(self.game.image_folder, filename))
+                if os.path.commonpath([self.game.image_folder, path]) != self.game.image_folder:
+                    print("Security warning: blocked invalid image path")
+                    return
+                img = Image.open(path)
+                img = self.game._scale_image(img)
+
             img_tk = ImageTk.PhotoImage(img)
             self.current_image = img_tk
             self.current_image_path = path
@@ -269,15 +313,23 @@ class SmashOrPassApp:
         if self.network:
             self.votes[self.username] = vote
             self.update_results()
-            self.network.send('vote', {'vote': vote, 'image': self.current_image_path})
+            self.network.send('vote', {'vote': vote, 'image': os.path.basename(self.current_image_path) if self.current_image_path else None})
 
     def receive_vote(self, data, addr=None):
         if not self.network or not addr:
             return
-        username = self.network.clients.get(addr, "Unknown")
+
         vote = data.get('vote', 'unknown')
-        self.votes[username] = vote
-        self.update_results()
+
+        if self.network.is_host:
+            username = self.network.clients.get(addr, data.get('_username', 'Unknown'))
+            self.votes[username] = vote
+            self.update_results()
+            self.network.send('vote', {'vote': vote, '_username': username})
+        else:
+            username = data.get('_username', data.get('username', 'Unknown'))
+            self.votes[username] = vote
+            self.update_results()
 
     def user_joined(self, data, addr=None):
         username = data.get('username', 'Unknown')

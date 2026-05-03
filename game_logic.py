@@ -31,7 +31,7 @@ class GameLogic:
                 file_abs_path = os.path.abspath(file_path)
                 
                 # Security check: ensure file is within the image folder
-                if not file_abs_path.startswith(self.image_folder):
+                if os.path.commonpath([self.image_folder, file_abs_path]) != self.image_folder:
                     print(f"Security warning: Skipping file outside image folder: {f}")
                     continue
                 
@@ -53,7 +53,7 @@ class GameLogic:
             
             # Security check: verify the resolved path is still within image folder
             file_abs_path = os.path.abspath(self.current_image_path)
-            if not file_abs_path.startswith(self.image_folder):
+            if os.path.commonpath([self.image_folder, file_abs_path]) != self.image_folder:
                 print(f"Security error: Attempted directory traversal detected")
                 return None, None
             

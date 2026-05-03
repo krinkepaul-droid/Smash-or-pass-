@@ -1,53 +1,128 @@
-import socket
 import json
+import secrets
+import socket
 import threading
 
-# Constants
-SOCKET_TIMEOUT = 5.0
+SOCKET_TIMEOUT = 0.5
 PORT_RANGE = (1, 65535)
 USERNAME_LIMIT = 50
+BUFFER_SIZE = 65535
+ROOM_KEY_LIMIT = 32
 
-# Thread-safe dictionary
-shared_dict = threading.Lock()
 
-def validate_username(username):
-    if len(username) > USERNAME_LIMIT:
-        raise ValueError(f"Username exceeds {USERNAME_LIMIT} characters.")
-    return username
-
-def validate_port(port):
-    if not (PORT_RANGE[0] <= port <= PORT_RANGE[1]):
-        raise ValueError(f"Port must be between {PORT_RANGE[0]} and {PORT_RANGE[1]}.")
+def _validate_port(port: int) -> int:
+    if not isinstance(port, int) or not (PORT_RANGE[0] <= port <= PORT_RANGE[1]):
+        raise ValueError(f"Port must be between {PORT_RANGE[0]} and {PORT_RANGE[1]}")
     return port
 
-def json_decode(data):
-    try:
-        return json.loads(data.decode('utf-8'))
-    except (json.JSONDecodeError, UnicodeDecodeError) as e:
-        raise ValueError('Invalid JSON data: ' + str(e))
 
-def secure_room_key(room_key):
-    # Implement room key security checks here
-    pass
+def _validate_username(username: str) -> str:
+    username = (username or "Player").strip()
+    if not username:
+        username = "Player"
+    if len(username) > USERNAME_LIMIT:
+        username = username[:USERNAME_LIMIT]
+    return username
 
-def socket_operations(socket_obj):
-    try:
-        socket_obj.settimeout(SOCKET_TIMEOUT)
-        # Socket operations here
-    except socket.timeout:
-        print('Socket operation timed out.')
-    except Exception as e:
-        print('Socket error occurred: ' + str(e))
 
-def validate_message_structure(message):
-    required_fields = ['type', 'data']  # Example fields
-    for field in required_fields:
-        if field not in message:
-            raise ValueError(f'Missing required field: {field}')
-    return message
 
-# Example usage
-if __name__ == '__main__':
-    username = validate_username('example_user')
-    port = validate_port(8080)
-    # Add the rest of the implementation here.
+def _validate_room_key(room_key: str) -> str:
+    room_key = (room_key or "").strip()
+    if not room_key:
+        return secrets.token_hex(4)
+    if len(room_key) > ROOM_KEY_LIMIT or not room_key.isalnum():
+        raise ValueError("Invalid room key")
+    return room_key
+
+
+class Network:
+    def __init__(self, host_ip="", port=55555, room_key=None, username="Player"):
+        self.host_ip = host_ip
+        self.port = _validate_port(port)
+        self.username = _validate_username(username)
+        self.room_key = _validate_room_key(room_key)
+        self.is_host = not bool(host_ip)
+
+        self.callbacks = {}
+        self.clients = {}
+        self.running = True
+
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.sock.settimeout(SOCKET_TIMEOUT)
+
+        if self.is_host:
+            self.sock.bind(("", self.port))
+            self.server_addr = None
+        else:
+            self.server_addr = (self.host_ip, self.port)
+            self._send_raw(
+                self.server_addr,
+                {"type": "join", "data": {"username": self.username, "room_key": self.room_key}},
+            )
+
+        self.listener = threading.Thread(target=self._listen, daemon=True)
+        self.listener.start()
+
+    def on(self, event, callback):
+        self.callbacks[event] = callback
+
+    def send(self, event, data):
+        payload = {"type": event, "data": data, "room_key": self.room_key, "username": self.username}
+        if self.is_host:
+            for addr in list(self.clients.keys()):
+                self._send_raw(addr, payload)
+        else:
+            if self.server_addr:
+                self._send_raw(self.server_addr, payload)
+
+    def close(self):
+        self.running = False
+        try:
+            self.sock.close()
+        except OSError:
+            pass
+
+    def _send_raw(self, addr, payload):
+        try:
+            self.sock.sendto(json.dumps(payload).encode("utf-8"), addr)
+        except OSError:
+            pass
+
+    def _listen(self):
+        while self.running:
+            try:
+                raw, addr = self.sock.recvfrom(BUFFER_SIZE)
+            except socket.timeout:
+                continue
+            except OSError:
+                break
+
+            try:
+                message = json.loads(raw.decode("utf-8"))
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                continue
+
+            msg_type = message.get("type")
+            data = message.get("data", {})
+            if not isinstance(data, dict):
+                continue
+            if isinstance(data, dict) and message.get("username"):
+                data.setdefault("_username", message.get("username"))
+
+            if self.is_host:
+                if msg_type == "join":
+                    if data.get("room_key") != self.room_key:
+                        continue
+                    username = _validate_username(data.get("username", "Player"))
+                    self.clients[addr] = username
+                    callback = self.callbacks.get("user_joined")
+                    if callback:
+                        callback({"username": username}, addr)
+                    continue
+
+                if message.get("room_key") != self.room_key:
+                    continue
+
+            callback = self.callbacks.get(msg_type)
+            if callback:
+                callback(data, addr)
