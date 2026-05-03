@@ -30,24 +30,56 @@ class SmashOrPassApp:
         self.setup_ui()
 
     def setup_ui(self):
-        # Main frame
-        self.main_frame = tk.Frame(self.root)
-        self.main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
+        # Main container
+        self.main_frame = tk.Frame(self.root, padx=10, pady=10)
+        self.main_frame.pack(fill=tk.BOTH, expand=True)
 
-        # Image display
-        self.image_label = tk.Label(self.main_frame)
-        self.image_label.pack(pady=20)
+        # --- TOOLBAR (Top) ---
+        self.toolbar = tk.Frame(self.main_frame, bd=1, relief=tk.RAISED, padx=5, pady=5)
+        self.toolbar.pack(fill=tk.X, pady=(0, 10))
 
-        # Buttons
-        self.btn_frame = tk.Frame(self.main_frame)
-        self.btn_frame.pack(pady=20)
+        # Toolbar buttons
+        tk.Button(
+            self.toolbar,
+            text="📁 Select Image Folder",
+            command=self.select_folder,
+            width=20,
+            font=("Arial", 10)
+        ).pack(side=tk.LEFT, padx=5)
+
+        tk.Button(
+            self.toolbar,
+            text="🏠 Host Game",
+            command=self.host_game,
+            width=15,
+            font=("Arial", 10)
+        ).pack(side=tk.LEFT, padx=5)
+
+        tk.Button(
+            self.toolbar,
+            text="🔗 Join Game",
+            command=self.join_game,
+            width=15,
+            font=("Arial", 10)
+        ).pack(side=tk.LEFT, padx=5)
+
+        # --- IMAGE DISPLAY (Center) ---
+        self.image_frame = tk.Frame(self.main_frame, bd=2, relief=tk.SUNKEN, bg="black")
+        self.image_frame.pack(fill=tk.BOTH, expand=True, pady=10)
+
+        self.image_label = tk.Label(self.image_frame, bg="black", text="No image loaded", fg="white")
+        self.image_label.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        # --- VOTING BUTTONS (Below Image) ---
+        self.vote_frame = tk.Frame(self.main_frame)
+        self.vote_frame.pack(fill=tk.X, pady=10)
 
         self.smash_btn = tk.Button(
-            self.btn_frame,
-            text="SMASH",
+            self.vote_frame,
+            text="✅ SMASH",
             command=self.vote_smash,
             state=tk.DISABLED,
-            width=10,
+            width=12,
             height=2,
             bg="#4CAF50",
             fg="white",
@@ -56,11 +88,11 @@ class SmashOrPassApp:
         self.smash_btn.pack(side=tk.LEFT, padx=20)
 
         self.pass_btn = tk.Button(
-            self.btn_frame,
-            text="PASS",
+            self.vote_frame,
+            text="❌ PASS",
             command=self.vote_pass,
             state=tk.DISABLED,
-            width=10,
+            width=12,
             height=2,
             bg="#F44336",
             fg="white",
@@ -68,50 +100,46 @@ class SmashOrPassApp:
         )
         self.pass_btn.pack(side=tk.LEFT, padx=20)
 
-        # Results
-        self.results_frame = tk.Frame(self.main_frame)
-        self.results_frame.pack(fill=tk.BOTH, expand=True, pady=20)
-
-        self.results_label = tk.Label(
-            self.results_frame,
-            text="Votes will appear here:",
-            font=("Arial", 12)
+        # --- RESULTS PANEL (Bottom) ---
+        self.results_frame = tk.LabelFrame(
+            self.main_frame,
+            text="📊 Live Votes",
+            bd=1,
+            relief=tk.GROOVE,
+            padx=5,
+            pady=5
         )
-        self.results_label.pack(anchor="w")
+        self.results_frame.pack(fill=tk.BOTH, expand=True, pady=10)
 
         self.results_text = tk.Text(
             self.results_frame,
-            height=8,
+            height=6,
             width=60,
             state=tk.DISABLED,
-            font=("Arial", 10)
+            font=("Arial", 10),
+            wrap=tk.WORD,
+            padx=5,
+            pady=5
         )
         self.results_text.pack(fill=tk.BOTH, expand=True)
 
-        # Menu
-        self.menu = tk.Menu(self.root)
-        self.root.config(menu=self.menu)
-
-        file_menu = tk.Menu(self.menu, tearoff=0)
-        file_menu.add_command(label="Select Image Folder", command=self.select_folder)
-        file_menu.add_command(label="Host Game", command=self.host_game)
-        file_menu.add_command(label="Join Game", command=self.join_game)
-        file_menu.add_separator()
-        file_menu.add_command(label="Exit", command=self.on_close)
-        self.menu.add_cascade(label="File", menu=file_menu)
-
-        # Status
+        # --- STATUS BAR (Very Bottom) ---
         self.status_label = tk.Label(
             self.main_frame,
             text=f"Welcome, {self.username}! Select an image folder and host/join a game.",
-            font=("Arial", 10)
+            bd=1,
+            relief=tk.SUNKEN,
+            anchor=tk.W,
+            font=("Arial", 10),
+            padx=5
         )
-        self.status_label.pack(pady=10)
+        self.status_label.pack(fill=tk.X, pady=(10, 0))
 
         # Initial state
         self.current_image = None
         self.current_image_path = None
 
+    # --- REST OF THE CODE (Unchanged) ---
     def select_folder(self):
         folder = filedialog.askdirectory()
         if folder:
@@ -152,7 +180,7 @@ class SmashOrPassApp:
         if img:
             self.current_image = img
             self.current_image_path = path
-            self.image_label.config(image=img)
+            self.image_label.config(image=img, text="")
             self.image_label.image = img
             self.votes = {}
             self.update_results()
@@ -166,11 +194,11 @@ class SmashOrPassApp:
         path = data['path']
         try:
             img = Image.open(path)
-            img = img.resize((500, 500), Image.LANCZOS)
+            img = self.game._scale_image(img)
             img_tk = ImageTk.PhotoImage(img)
             self.current_image = img_tk
             self.current_image_path = path
-            self.image_label.config(image=img_tk)
+            self.image_label.config(image=img_tk, text="")
             self.image_label.image = img_tk
             self.votes = {}
             self.update_results()
@@ -196,14 +224,13 @@ class SmashOrPassApp:
     def receive_vote(self, data, addr=None):
         username = self.network.clients.get(addr, "Unknown")
         vote = data['vote']
-        image = data['image']
         self.votes[username] = vote
         self.update_results()
 
     def user_joined(self, data, addr=None):
         username = data['username']
         self.results_text.config(state=tk.NORMAL)
-        self.results_text.insert(tk.END, f"{username} joined the game.\n")
+        self.results_text.insert(tk.END, f"👤 {username} joined the game.\n")
         self.results_text.config(state=tk.DISABLED)
 
     def update_results(self):
@@ -213,7 +240,8 @@ class SmashOrPassApp:
             self.results_text.insert(tk.END, "No votes yet.\n")
         else:
             for user, vote in self.votes.items():
-                self.results_text.insert(tk.END, f"{user}: {vote.upper()}\n")
+                emoji = "✅" if vote == "smash" else "❌"
+                self.results_text.insert(tk.END, f"{emoji} {user}: {vote.upper()}\n")
         self.results_text.config(state=tk.DISABLED)
 
     def on_close(self):
