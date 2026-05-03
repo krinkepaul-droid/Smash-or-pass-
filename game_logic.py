@@ -4,40 +4,80 @@ from PIL import Image, ImageTk
 
 class GameLogic:
     def __init__(self, image_folder, max_size=(500, 500)):
-        self.image_folder = image_folder
+        self.image_folder = os.path.abspath(image_folder)  # Resolve to absolute path
         self.max_size = max_size
         self.images = self._load_images()
         self.current_image = None
         self.current_image_path = None
 
     def _load_images(self):
+        """Load images from folder with path validation"""
         if not os.path.exists(self.image_folder):
-            os.makedirs(self.image_folder, exist_ok=True)
+            try:
+                os.makedirs(self.image_folder, exist_ok=True)
+            except OSError as e:
+                print(f"Error creating image folder: {e}")
             return []
-        return [f for f in os.listdir(self.image_folder)
-                if f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp'))]
+        
+        if not os.path.isdir(self.image_folder):
+            print(f"Error: {self.image_folder} is not a directory")
+            return []
+        
+        images = []
+        try:
+            for f in os.listdir(self.image_folder):
+                # Validate file is within image folder (prevent directory traversal)
+                file_path = os.path.join(self.image_folder, f)
+                file_abs_path = os.path.abspath(file_path)
+                
+                # Security check: ensure file is within the image folder
+                if not file_abs_path.startswith(self.image_folder):
+                    print(f"Security warning: Skipping file outside image folder: {f}")
+                    continue
+                
+                if os.path.isfile(file_abs_path) and f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp')):
+                    images.append(f)
+        except OSError as e:
+            print(f"Error reading image folder: {e}")
+        
+        return images
 
     def get_random_image(self):
+        """Get random image with security validation"""
         if not self.images:
             return None, None
-        self.current_image_path = os.path.join(self.image_folder, random.choice(self.images))
+        
         try:
-            img = Image.open(self.current_image_path)
+            filename = random.choice(self.images)
+            self.current_image_path = os.path.join(self.image_folder, filename)
+            
+            # Security check: verify the resolved path is still within image folder
+            file_abs_path = os.path.abspath(self.current_image_path)
+            if not file_abs_path.startswith(self.image_folder):
+                print(f"Security error: Attempted directory traversal detected")
+                return None, None
+            
+            img = Image.open(file_abs_path)
             img = self._scale_image(img)
-            return ImageTk.PhotoImage(img), self.current_image_path
+            return ImageTk.PhotoImage(img), file_abs_path
         except Exception as e:
             print(f"Error loading image: {e}")
             return None, None
 
     def _scale_image(self, img):
-        # Maintain aspect ratio, fit within max_size
-        img.thumbnail(self.max_size, Image.LANCZOS)
-        # Create a new image with black background
-        background = Image.new('RGB', self.max_size, (0, 0, 0))
-        # Paste the resized image in the center
-        offset = (
-            (self.max_size[0] - img.width) // 2,
-            (self.max_size[1] - img.height) // 2
-        )
-        background.paste(img, offset)
-        return background
+        """Scale image maintaining aspect ratio"""
+        try:
+            # Maintain aspect ratio, fit within max_size
+            img.thumbnail(self.max_size, Image.LANCZOS)
+            # Create a new image with black background
+            background = Image.new('RGB', self.max_size, (0, 0, 0))
+            # Paste the resized image in the center
+            offset = (
+                (self.max_size[0] - img.width) // 2,
+                (self.max_size[1] - img.height) // 2
+            )
+            background.paste(img, offset)
+            return background
+        except Exception as e:
+            print(f"Error scaling image: {e}")
+            return None
