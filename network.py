@@ -1,76 +1,53 @@
 import socket
-import threading
 import json
-import uuid
-import hashlib
-import base64
-import os
+import threading
 
-def generate_secure_room_key():
-    salt = os.urandom(16)
-    key = str(uuid.uuid4()).encode()
-    hashed = hashlib.pbkdf2_hmac('sha256', key, salt, 100000)
-    return base64.urlsafe_b64encode(salt + hashed).decode()[:22]
+# Constants
+SOCKET_TIMEOUT = 5.0
+PORT_RANGE = (1, 65535)
+USERNAME_LIMIT = 50
 
-class Network:
-    def __init__(self, host_ip=None, port=55555, room_key=None, username=None):
-        self.host_ip = host_ip
-        self.port = port
-        self.room_key = room_key or generate_secure_room_key()
-        self.username = username or "Player"
-        self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.is_host = host_ip is None
-        self.clients = {}  # {address: username}
-        if self.is_host:
-            self.socket.bind(('0.0.0.0', self.port))
-        else:
-            self.socket.connect((self.host_ip, self.port))
-            self.socket.sendto(
-                json.dumps({'type': 'join', 'username': self.username, 'room_key': self.room_key}).encode(),
-                (self.host_ip, self.port)
-            )
-        self.running = True
-        self.thread = threading.Thread(target=self._listen)
-        self.thread.daemon = True
-        self.thread.start()
-        self.callbacks = {}
+# Thread-safe dictionary
+shared_dict = threading.Lock()
 
-    def _listen(self):
-        while self.running:
-            try:
-                data, addr = self.socket.recvfrom(4096)
-                message = json.loads(data.decode())
-                if message.get('room_key') == self.room_key:
-                    if message['type'] == 'join':
-                        self.clients[addr] = message['username']
-                        if self.is_host:
-                            self.send('user_joined', {'username': message['username']}, exclude=addr)
-                    elif message['type'] in self.callbacks:
-                        self.callbacks[message['type']](message['data'], addr)
-            except Exception as e:
-                print(f"Network error: {e}")
-                break
+def validate_username(username):
+    if len(username) > USERNAME_LIMIT:
+        raise ValueError(f"Username exceeds {USERNAME_LIMIT} characters.")
+    return username
 
-    def send(self, message_type, data, exclude=None):
-        message = json.dumps({
-            'type': message_type,
-            'data': data,
-            'username': self.username,
-            'room_key': self.room_key
-        }).encode()
-        if self.is_host:
-            for client in self.clients:
-                if exclude and client == exclude:
-                    continue
-                self.socket.sendto(message, client)
-        else:
-            self.socket.sendto(message, (self.host_ip, self.port))
+def validate_port(port):
+    if not (PORT_RANGE[0] <= port <= PORT_RANGE[1]):
+        raise ValueError(f"Port must be between {PORT_RANGE[0]} and {PORT_RANGE[1]}.")
+    return port
 
-    def on(self, message_type, callback):
-        self.callbacks[message_type] = callback
+def json_decode(data):
+    try:
+        return json.loads(data.decode('utf-8'))
+    except (json.JSONDecodeError, UnicodeDecodeError) as e:
+        raise ValueError('Invalid JSON data: ' + str(e))
 
-    def close(self):
-        self.running = False
-        self.socket.close()
-        self.thread.join()
+def secure_room_key(room_key):
+    # Implement room key security checks here
+    pass
+
+def socket_operations(socket_obj):
+    try:
+        socket_obj.settimeout(SOCKET_TIMEOUT)
+        # Socket operations here
+    except socket.timeout:
+        print('Socket operation timed out.')
+    except Exception as e:
+        print('Socket error occurred: ' + str(e))
+
+def validate_message_structure(message):
+    required_fields = ['type', 'data']  # Example fields
+    for field in required_fields:
+        if field not in message:
+            raise ValueError(f'Missing required field: {field}')
+    return message
+
+# Example usage
+if __name__ == '__main__':
+    username = validate_username('example_user')
+    port = validate_port(8080)
+    # Add the rest of the implementation here.
