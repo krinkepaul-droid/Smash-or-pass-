@@ -6,6 +6,9 @@ import json
 import threading
 import base64
 import io
+
+MAX_IMAGE_BYTES = 45000
+MAX_IMAGE_B64_CHARS = 70000
 from game_logic import GameLogic
 from network import Network
 
@@ -250,7 +253,7 @@ class SmashOrPassApp:
             buffer = io.BytesIO()
             img.save(buffer, format="JPEG", quality=70, optimize=True)
             data = buffer.getvalue()
-            if len(data) > 45000:
+            if len(data) > MAX_IMAGE_BYTES:
                 return None
             return base64.b64encode(data).decode("ascii")
         except Exception as e:
@@ -266,9 +269,15 @@ class SmashOrPassApp:
             print("Error: No filename provided in next_image")
             return
         image_b64 = data.get('image_b64')
+        if image_b64 and len(image_b64) > MAX_IMAGE_B64_CHARS:
+            print("Security warning: oversized image payload blocked")
+            return
         try:
             if image_b64:
                 decoded = base64.b64decode(image_b64, validate=True)
+                if len(decoded) > MAX_IMAGE_BYTES:
+                    print("Security warning: oversized decoded image blocked")
+                    return
                 img = Image.open(io.BytesIO(decoded))
                 img = self.game._scale_image(img)
                 path = os.path.abspath(os.path.join(self.game.image_folder, filename))
@@ -304,7 +313,7 @@ class SmashOrPassApp:
         if self.network:
             self.votes[self.username] = vote
             self.update_results()
-            self.network.send('vote', {'vote': vote, 'image': self.current_image_path})
+            self.network.send('vote', {'vote': vote, 'image': os.path.basename(self.current_image_path) if self.current_image_path else None})
 
     def receive_vote(self, data, addr=None):
         if not self.network or not addr:

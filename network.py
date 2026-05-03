@@ -7,6 +7,7 @@ SOCKET_TIMEOUT = 0.5
 PORT_RANGE = (1, 65535)
 USERNAME_LIMIT = 50
 BUFFER_SIZE = 65535
+ROOM_KEY_LIMIT = 32
 
 
 def _validate_port(port: int) -> int:
@@ -24,12 +25,22 @@ def _validate_username(username: str) -> str:
     return username
 
 
+
+def _validate_room_key(room_key: str) -> str:
+    room_key = (room_key or "").strip()
+    if not room_key:
+        return secrets.token_hex(4)
+    if len(room_key) > ROOM_KEY_LIMIT or not room_key.isalnum():
+        raise ValueError("Invalid room key")
+    return room_key
+
+
 class Network:
     def __init__(self, host_ip="", port=55555, room_key=None, username="Player"):
         self.host_ip = host_ip
         self.port = _validate_port(port)
         self.username = _validate_username(username)
-        self.room_key = room_key or secrets.token_hex(4)
+        self.room_key = _validate_room_key(room_key)
         self.is_host = not bool(host_ip)
 
         self.callbacks = {}
@@ -93,6 +104,8 @@ class Network:
 
             msg_type = message.get("type")
             data = message.get("data", {})
+            if not isinstance(data, dict):
+                continue
             if isinstance(data, dict) and message.get("username"):
                 data.setdefault("_username", message.get("username"))
 
