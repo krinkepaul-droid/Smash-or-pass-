@@ -7,6 +7,25 @@ import threading
 from game_logic import GameLogic
 from network import Network
 
+def create_default_config():
+    """Create default config.json if it doesn't exist"""
+    config_path = 'config.json'
+    if not os.path.exists(config_path):
+        default_config = {
+            "default_image_folder": "./images",
+            "default_port": 55555,
+            "default_username": "Player"
+        }
+        with open(config_path, 'w') as f:
+            json.dump(default_config, f, indent=4)
+        print(f"Created default {config_path}")
+
+def load_config():
+    """Load config from config.json"""
+    create_default_config()
+    with open('config.json') as f:
+        return json.load(f)
+
 class SmashOrPassApp:
     def __init__(self, root):
         self.root = root
@@ -15,8 +34,7 @@ class SmashOrPassApp:
         self.root.minsize(800, 600)
 
         # Load config
-        with open('config.json') as f:
-            config = json.load(f)
+        config = load_config()
         self.image_folder = config['default_image_folder']
         self.port = config['default_port']
         self.username = simpledialog.askstring("Username", "Enter your username:", parent=self.root) or config['default_username']
