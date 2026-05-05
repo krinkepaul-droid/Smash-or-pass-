@@ -68,6 +68,7 @@ class GameLogic:
         """Scale image maintaining aspect ratio"""
         try:
             target_size = max_size or self.max_size
+            # Use a copy so resizing is non-destructive and safe across callers.
             working_img = img.copy().convert("RGB")
             # Maintain aspect ratio, fit within max_size
             working_img.thumbnail(target_size, Image.LANCZOS)
