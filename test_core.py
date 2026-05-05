@@ -5,7 +5,7 @@ from pathlib import Path
 from PIL import Image
 
 from game_logic import GameLogic
-from network import _validate_port, _validate_room_key, _validate_username
+from network import _validate_port, _validate_room_key, _validate_username, _hash_room_key
 
 
 class TestNetworkValidation(unittest.TestCase):
@@ -22,6 +22,11 @@ class TestNetworkValidation(unittest.TestCase):
         self.assertEqual(_validate_room_key("Room123"), "Room123")
         with self.assertRaises(ValueError):
             _validate_room_key("bad-key!")
+
+    def test_room_key_hash(self):
+        hashed = _hash_room_key("Room123")
+        self.assertEqual(len(hashed), 64)
+        self.assertNotEqual(hashed, "Room123")
 
 
 class TestGameLogic(unittest.TestCase):
