@@ -80,8 +80,6 @@ class SmashOrPassApp:
         self.votes = {}  # {username: vote}
         self.current_image_name = None
         self.has_voted_this_round = False
-        self.next_round_after_id = None
-        self.resize_after_id = None
 
         # UI
         self.setup_ui()
@@ -210,17 +208,15 @@ class SmashOrPassApp:
         self.current_image_path = None
 
     def _on_image_frame_resize(self, _event=None):
-        # Keep image sizing responsive, but debounce rapid resize events.
-        if self.resize_after_id:
-            self.root.after_cancel(self.resize_after_id)
-        self.resize_after_id = self.root.after(100, self._refresh_current_image)
+        # Keep image sizing responsive to window changes.
+        self._refresh_current_image()
 
     def _refresh_current_image(self):
         if not self.current_image_path or not os.path.isfile(self.current_image_path):
             return
         try:
-            with Image.open(self.current_image_path) as img:
-                scaled = self._scale_for_ui(img)
+            img = Image.open(self.current_image_path)
+            scaled = self._scale_for_ui(img)
             if scaled is None:
                 return
             img_tk = ImageTk.PhotoImage(scaled)
@@ -235,6 +231,7 @@ class SmashOrPassApp:
         h = max(250, self.image_frame.winfo_height() - 20)
         return self.game._scale_image(img, max_size=(w, h))
 
+    # --- REST OF THE CODE (Unchanged) ---
     def select_folder(self):
         folder = filedialog.askdirectory()
         if folder:
@@ -264,10 +261,11 @@ class SmashOrPassApp:
             self.network.on('vote_results', self.receive_vote_results)
             self.network.on('user_joined', self.user_joined)
             self.status_label.config(text=f"Joined game at {host_ip}")
-            self._set_vote_buttons_enabled(False)
+            self._set_vote_buttons_enabled(True)
 
     def start_game(self):
         self.next_image()
+        self._set_vote_buttons_enabled(True)
 
     def next_image(self):
         img, path = self.game.get_random_image()
@@ -395,7 +393,7 @@ class SmashOrPassApp:
             username = self.network.clients.get(addr, data.get('_username', 'Unknown'))
             self.votes[username] = vote
             self.update_results()
-            self.network.send('vote', {'vote': vote, '_username': username, 'image': image_name})
+            self.network.send('vote', {'vote': vote, '_username': username})
             self._try_finalize_round()
         else:
             username = data.get('_username', data.get('username', 'Unknown'))
@@ -421,9 +419,7 @@ class SmashOrPassApp:
             }
             self.network.send('vote_results', results_payload)
             self._receive_vote_results(results_payload)
-            if self.next_round_after_id:
-                self.root.after_cancel(self.next_round_after_id)
-            self.next_round_after_id = self.root.after(1500, self.next_image)
+            self.root.after(1500, self.next_image)
 
     def receive_vote_results(self, data, addr=None):
         self.root.after(0, lambda: self._receive_vote_results(data))
@@ -436,8 +432,6 @@ class SmashOrPassApp:
         pass_count = int(data.get("pass", 0))
         weighted_smash = int(data.get("weighted_smash", smash_count + (2 * hellyeah_count)))
         total = int(data.get("total", smash_count + pass_count))
-        if "total" not in data:
-            total = smash_count + hellyeah_count + pass_count
         self.results_text.config(state=tk.NORMAL)
         self.results_text.insert(tk.END, "\n--- Round Result ---\n")
         self.results_text.insert(tk.END, f"Total votes: {total}\n")
@@ -459,7 +453,7 @@ class SmashOrPassApp:
         if not self.votes:
             self.results_text.insert(tk.END, "No votes yet.\n")
         else:
-            for user, vote in sorted(self.votes.items(), key=lambda item: item[0].lower()):
+            for user, vote in self.votes.items():
                 emoji = "✅" if vote == "smash" else "🔥" if vote == "hellyeah" else "❌"
                 label = "HELLYEAH x2" if vote == "hellyeah" else vote.upper()
                 self.results_text.insert(tk.END, f"{emoji} {user}: {label}\n")
