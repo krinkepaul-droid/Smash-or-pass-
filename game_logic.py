@@ -77,7 +77,7 @@ class GameLogic:
                 (target_size[0] - img.width) // 2,
                 (target_size[1] - img.height) // 2
             )
-            background.paste(img, offset)
+            background.paste(working_img, offset)
             return background
         except Exception as e:
             print(f"Error scaling image: {e}")

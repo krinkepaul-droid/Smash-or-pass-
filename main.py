@@ -295,8 +295,8 @@ class SmashOrPassApp:
 
     def _encode_image_for_network(self, path):
         try:
-            img = Image.open(path)
-            img = self.game._scale_image(img)
+            with Image.open(path) as opened:
+                img = self.game._scale_image(opened)
             if img is None:
                 return None
             buffer = io.BytesIO()
@@ -331,16 +331,16 @@ class SmashOrPassApp:
                 if len(decoded) > MAX_IMAGE_BYTES:
                     print("Security warning: oversized decoded image blocked")
                     return
-                img = Image.open(io.BytesIO(decoded))
-                img = self.game._scale_image(img)
+                with Image.open(io.BytesIO(decoded)) as opened:
+                    img = self.game._scale_image(opened)
                 path = os.path.abspath(os.path.join(self.game.image_folder, filename))
             else:
                 path = os.path.abspath(os.path.join(self.game.image_folder, filename))
                 if os.path.commonpath([self.game.image_folder, path]) != self.game.image_folder:
                     print("Security warning: blocked invalid image path")
                     return
-                img = Image.open(path)
-                img = self.game._scale_image(img)
+                with Image.open(path) as opened:
+                    img = self.game._scale_image(opened)
 
             img_tk = ImageTk.PhotoImage(img)
             self.current_image = img_tk
@@ -460,6 +460,10 @@ class SmashOrPassApp:
         self.results_text.config(state=tk.DISABLED)
 
     def on_close(self):
+        if self.next_round_after_id:
+            self.root.after_cancel(self.next_round_after_id)
+        if self.resize_after_id:
+            self.root.after_cancel(self.resize_after_id)
         if self.network:
             self.network.close()
         self.root.quit()
