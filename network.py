@@ -3,6 +3,7 @@ import secrets
 import socket
 import threading
 import hashlib
+import hmac
 
 SOCKET_TIMEOUT = 0.5
 PORT_RANGE = (1, 65535)
@@ -45,8 +46,11 @@ class Network:
         self.host_ip = host_ip
         self.port = _validate_port(port)
         self.username = _validate_username(username)
-        self.room_key = _validate_room_key(room_key)
-        self.room_key_hash = _hash_room_key(self.room_key)
+        validated_room_key = _validate_room_key(room_key)
+        self.room_key = validated_room_key if not host_ip else None
+        self.room_key_hash = _hash_room_key(validated_room_key)
+        # Minimize lifetime of plaintext key in memory.
+        validated_room_key = None
         self.is_host = not bool(host_ip)
 
         self.callbacks = {}
@@ -118,7 +122,7 @@ class Network:
             if self.is_host:
                 if msg_type == "join":
                     join_key_hash = data.get("room_key_hash")
-                    if join_key_hash != self.room_key_hash:
+                    if not isinstance(join_key_hash, str) or not hmac.compare_digest(join_key_hash, self.room_key_hash):
                         continue
                     username = _validate_username(data.get("username", "Player"))
                     self.clients[addr] = username
@@ -127,7 +131,8 @@ class Network:
                         callback({"username": username}, addr)
                     continue
 
-                if message.get("room_key_hash") != self.room_key_hash:
+                incoming_hash = message.get("room_key_hash")
+                if not isinstance(incoming_hash, str) or not hmac.compare_digest(incoming_hash, self.room_key_hash):
                     continue
 
             callback = self.callbacks.get(msg_type)
