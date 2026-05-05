@@ -231,8 +231,18 @@ class SmashOrPassApp:
             print(f"Error refreshing image: {e}")
 
     def _scale_for_ui(self, img):
-        w = max(300, self.image_frame.winfo_width() - 20)
-        h = max(250, self.image_frame.winfo_height() - 20)
+          # Keep enough vertical room for vote controls and results panel.
+        frame_w = self.image_frame.winfo_width()
+        frame_h = self.image_frame.winfo_height()
+        root_h = self.root.winfo_height()
+
+        w = max(300, frame_w - 20)
+        h = max(250, frame_h - 20)
+
+        # Cap image height so action buttons and vote text remain visible.
+        max_ui_height = int(root_h * 0.52)
+        h = min(h, max_ui_height)
+
         return self.game._scale_image(img, max_size=(w, h))
 
     # --- REST OF THE CODE (Unchanged) ---
