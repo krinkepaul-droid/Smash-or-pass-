@@ -84,7 +84,12 @@ class Network:
         else:
             if self.server_addr:
                 self._send_raw(self.server_addr, payload)
-
+                
+    def send_to(self, addr, event, data):
+        if not self.is_host or not addr:
+            return
+        payload = {"type": event, "data": data, "room_key_hash": self.room_key_hash, "username": self.username}
+        self._send_raw(addr, payload)
     def close(self):
         self.running = False
         try:
