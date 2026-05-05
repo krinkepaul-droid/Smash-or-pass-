@@ -65,17 +65,18 @@ class GameLogic:
             return None, None
 
     def _scale_image(self, img, max_size=None):
-        """Scale image maintaining aspect ratio"""
+        """Scale image maintaining aspect ratio and centered letterboxing."""
         try:
             target_size = max_size or self.max_size
+            working_img = img.copy().convert("RGB")
             # Maintain aspect ratio, fit within max_size
-            img.thumbnail(target_size, Image.LANCZOS)
+            working_img.thumbnail(target_size, Image.LANCZOS)
             # Create a new image with black background
             background = Image.new('RGB', target_size, (0, 0, 0))
             # Paste the resized image in the center
             offset = (
-                (target_size[0] - img.width) // 2,
-                (target_size[1] - img.height) // 2
+                (target_size[0] - working_img.width) // 2,
+                (target_size[1] - working_img.height) // 2
             )
             background.paste(working_img, offset)
             return background

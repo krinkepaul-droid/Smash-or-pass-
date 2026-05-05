@@ -80,6 +80,8 @@ class SmashOrPassApp:
         self.votes = {}  # {username: vote}
         self.current_image_name = None
         self.has_voted_this_round = False
+        self.resize_after_id = None
+        self.next_round_after_id = None
 
         # UI
         self.setup_ui()
@@ -208,15 +210,17 @@ class SmashOrPassApp:
         self.current_image_path = None
 
     def _on_image_frame_resize(self, _event=None):
-        # Keep image sizing responsive to window changes.
-        self._refresh_current_image()
+        # Keep image sizing responsive to window changes with debounce.
+        if self.resize_after_id:
+            self.root.after_cancel(self.resize_after_id)
+        self.resize_after_id = self.root.after(100, self._refresh_current_image)
 
     def _refresh_current_image(self):
         if not self.current_image_path or not os.path.isfile(self.current_image_path):
             return
         try:
-            img = Image.open(self.current_image_path)
-            scaled = self._scale_for_ui(img)
+            with Image.open(self.current_image_path) as img:
+                scaled = self._scale_for_ui(img)
             if scaled is None:
                 return
             img_tk = ImageTk.PhotoImage(scaled)
@@ -261,7 +265,7 @@ class SmashOrPassApp:
             self.network.on('vote_results', self.receive_vote_results)
             self.network.on('user_joined', self.user_joined)
             self.status_label.config(text=f"Joined game at {host_ip}")
-            self._set_vote_buttons_enabled(True)
+            self._set_vote_buttons_enabled(False)
 
     def start_game(self):
         self.next_image()
@@ -393,7 +397,7 @@ class SmashOrPassApp:
             username = self.network.clients.get(addr, data.get('_username', 'Unknown'))
             self.votes[username] = vote
             self.update_results()
-            self.network.send('vote', {'vote': vote, '_username': username})
+            self.network.send('vote', {'vote': vote, '_username': username, 'image': image_name})
             self._try_finalize_round()
         else:
             username = data.get('_username', data.get('username', 'Unknown'))
@@ -419,7 +423,9 @@ class SmashOrPassApp:
             }
             self.network.send('vote_results', results_payload)
             self._receive_vote_results(results_payload)
-            self.root.after(1500, self.next_image)
+            if self.next_round_after_id:
+                self.root.after_cancel(self.next_round_after_id)
+            self.next_round_after_id = self.root.after(1500, self.next_image)
 
     def receive_vote_results(self, data, addr=None):
         self.root.after(0, lambda: self._receive_vote_results(data))
@@ -453,7 +459,8 @@ class SmashOrPassApp:
         if not self.votes:
             self.results_text.insert(tk.END, "No votes yet.\n")
         else:
-            for user, vote in self.votes.items():
+            for user in sorted(self.votes):
+                vote = self.votes[user]
                 emoji = "✅" if vote == "smash" else "🔥" if vote == "hellyeah" else "❌"
                 label = "HELLYEAH x2" if vote == "hellyeah" else vote.upper()
                 self.results_text.insert(tk.END, f"{emoji} {user}: {label}\n")
