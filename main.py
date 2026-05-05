@@ -119,6 +119,16 @@ class SmashOrPassApp:
             width=15,
             font=("Arial", 10)
         ).pack(side=tk.LEFT, padx=5)
+        self.skip_btn = tk.Button(
+            self.toolbar,
+            text="⏭️ Skip Round",
+            command=self.skip_round,
+            state=tk.DISABLED,
+            width=15,
+            font=("Arial", 10)
+        )
+        self.skip_btn.pack(side=tk.LEFT, padx=5)
+
 
         # --- IMAGE DISPLAY (Center) ---
         self.image_frame = tk.Frame(self.main_frame, bd=2, relief=tk.SUNKEN, bg="black")
@@ -263,6 +273,7 @@ class SmashOrPassApp:
         self.network.on('vote_results', self.receive_vote_results)
         self.network.on('user_joined', self.user_joined)
         self.status_label.config(text=f"Hosting game. Room key: {self.network.room_key}")
+        self.skip_btn.config(state=tk.NORMAL)
         self.start_game()
 
     def join_game(self):
@@ -275,12 +286,19 @@ class SmashOrPassApp:
             self.network.on('vote_results', self.receive_vote_results)
             self.network.on('user_joined', self.user_joined)
             self.status_label.config(text=f"Joined game at {host_ip}")
-            self._set_vote_buttons_enabled(False)
+            self.skip_btn.config(state=tk.DISABLED)
 
     def start_game(self):
         self.next_image()
         self._set_vote_buttons_enabled(True)
-
+        
+    def skip_round(self):
+        if not self.network or not self.network.is_host:
+            return
+        if self.next_round_after_id:
+            self.root.after_cancel(self.next_round_after_id)
+            self.next_round_after_id = None
+        self.next_image()
     def next_image(self):
         img, path = self.game.get_random_image()
         if img:
@@ -462,6 +480,12 @@ class SmashOrPassApp:
         self.results_text.config(state=tk.NORMAL)
         self.results_text.insert(tk.END, f"👤 {username} joined the game.\n")
         self.results_text.config(state=tk.DISABLED)
+        if self.network and self.network.is_host and addr and self.current_image_path and self.current_image_name:
+            payload = {'filename': self.current_image_name}
+            encoded = self._encode_image_for_network(self.current_image_path)
+            if encoded:
+                payload['image_b64'] = encoded
+            self.network.send_to(addr, 'next_image', payload)
 
     def update_results(self):
         self.results_text.config(state=tk.NORMAL)
